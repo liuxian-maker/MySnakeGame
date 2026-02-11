@@ -1,297 +1,176 @@
-/*******************************************************************************************
-*
-*   raylib game template
-*
-*   <Game title>
-*   <Game description>
-*
-*   This game has been created using raylib (www.raylib.com)
-*   raylib is licensed under an unmodified zlib/libpng license (View raylib.h for details)
-*
-*   Copyright (c) 2021 Ramon Santamaria (@raysan5)
-*
-********************************************************************************************/
-
 #include "raylib.h"
-#include "screens.h"    // NOTE: Declares global (extern) variables and screens functions
+#include "screens.h"  // 保留这个引用，防止报错
 
 #if defined(PLATFORM_WEB)
     #include <emscripten/emscripten.h>
 #endif
 
-//----------------------------------------------------------------------------------
-// Shared Variables Definition (global)
-// NOTE: Those variables are shared between modules through screens.h
-//----------------------------------------------------------------------------------
-GameScreen currentScreen = LOGO;
+// ---------------------------------------------------------
+// 1. 为了防止 GitHub 编译报错，必须保留的全局变量 (占位符)
+// ---------------------------------------------------------
+GameScreen currentScreen = 0;
 Font font = { 0 };
 Music music = { 0 };
 Sound fxCoin = { 0 };
 
-//----------------------------------------------------------------------------------
-// Global Variables Definition (local to this module)
-//----------------------------------------------------------------------------------
-static const int screenWidth = 800;
-static const int screenHeight = 450;
+// ---------------------------------------------------------
+// 2. 贪吃蛇游戏核心代码
+// ---------------------------------------------------------
+#define MAX_SNAKE_LENGTH 256
+const int SQUARE_SIZE = 31;
+const int SCREEN_WIDTH = 800;
+const int SCREEN_HEIGHT = 450;
 
-// Required variables to manage screen transitions (fade-in, fade-out)
-static float transAlpha = 0.0f;
-static bool onTransition = false;
-static bool transFadeOut = false;
-static int transFromScreen = -1;
-static GameScreen transToScreen = UNKNOWN;
+typedef struct Snake {
+    Vector2 position;
+    Vector2 speed;
+    Color color;
+} Snake;
 
-//----------------------------------------------------------------------------------
-// Module Functions Declaration
-//----------------------------------------------------------------------------------
-static void ChangeToScreen(int screen);     // Change to screen, no transition effect
+typedef struct Food {
+    Vector2 position;
+    bool active;
+    Color color;
+} Food;
 
-static void TransitionToScreen(int screen); // Request transition to next screen
-static void UpdateTransition(void);         // Update transition effect
-static void DrawTransition(void);           // Draw transition effect (full-screen rectangle)
+// 游戏全局变量
+static Snake snake[MAX_SNAKE_LENGTH] = { 0 };
+static int snakeLength = 0;
+static Food fruit = { 0 };
+static int framesCounter = 0;
+static bool gameOver = false;
+static bool pause = false;
 
-static void UpdateDrawFrame(void);          // Update and draw one frame
+// ---------------------------------------------------------
+// 3. 游戏逻辑函数
+// ---------------------------------------------------------
 
-//----------------------------------------------------------------------------------
-// Program main entry point
-//----------------------------------------------------------------------------------
+void InitGameLogic(void)
+{
+    framesCounter = 0;
+    gameOver = false;
+    pause = false;
+    snakeLength = 1;
+
+    // 初始化蛇
+    snake[0].position = (Vector2){ SCREEN_WIDTH/2, SCREEN_HEIGHT/2 };
+    snake[0].speed = (Vector2){ SQUARE_SIZE, 0 };
+    snake[0].color = DARKBLUE;
+
+    for (int i = 1; i < MAX_SNAKE_LENGTH; i++) {
+        snake[i].position = (Vector2){ -100, -100 };
+        snake[i].speed = (Vector2){ 0, 0 };
+        snake[i].color = BLUE;
+    }
+
+    // 初始化水果
+    fruit.active = true;
+    fruit.color = RED;
+    fruit.position = (Vector2){ (float)GetRandomValue(0, (SCREEN_WIDTH / SQUARE_SIZE) - 1) * SQUARE_SIZE, 
+                                (float)GetRandomValue(0, (SCREEN_HEIGHT / SQUARE_SIZE) - 1) * SQUARE_SIZE };
+}
+
+void UpdateGameLogic(void)
+{
+    if (!gameOver)
+    {
+        if (IsKeyPressed('P')) pause = !pause;
+
+        if (!pause)
+        {
+            // --- 手机触屏 + 键盘控制 ---
+            int gesture = GetGestureDetected();
+            
+            if ((IsKeyPressed(KEY_RIGHT) || gesture == GESTURE_SWIPE_RIGHT) && (snake[0].speed.x == 0)) 
+            { snake[0].speed = (Vector2){ SQUARE_SIZE, 0 }; }
+            if ((IsKeyPressed(KEY_LEFT) || gesture == GESTURE_SWIPE_LEFT) && (snake[0].speed.x == 0)) 
+            { snake[0].speed = (Vector2){ -SQUARE_SIZE, 0 }; }
+            if ((IsKeyPressed(KEY_UP) || gesture == GESTURE_SWIPE_UP) && (snake[0].speed.y == 0)) 
+            { snake[0].speed = (Vector2){ 0, -SQUARE_SIZE }; }
+            if ((IsKeyPressed(KEY_DOWN) || gesture == GESTURE_SWIPE_DOWN) && (snake[0].speed.y == 0)) 
+            { snake[0].speed = (Vector2){ 0, SQUARE_SIZE }; }
+
+            // 移动速度控制 (每10帧移动一次)
+            if ((framesCounter % 10) == 0) 
+            {
+                for (int i = snakeLength - 1; i > 0; i--) snake[i].position = snake[i - 1].position;
+                snake[0].position.x += snake[0].speed.x;
+                snake[0].position.y += snake[0].speed.y;
+            }
+
+            // 撞墙检测
+            if ((snake[0].position.x >= SCREEN_WIDTH) || (snake[0].position.x < 0) ||
+                (snake[0].position.y >= SCREEN_HEIGHT) || (snake[0].position.y < 0))
+            {
+                gameOver = true;
+            }
+
+            // 撞身体检测
+            for (int i = 1; i < snakeLength; i++) {
+                if ((snake[0].position.x == snake[i].position.x) && (snake[0].position.y == snake[i].position.y))
+                    gameOver = true;
+            }
+
+            // 吃水果
+            if ((snake[0].position.x == fruit.position.x) && (snake[0].position.y == fruit.position.y)) {
+                snakeLength++;
+                fruit.position = (Vector2){ (float)GetRandomValue(0, (SCREEN_WIDTH / SQUARE_SIZE) - 1) * SQUARE_SIZE, 
+                                            (float)GetRandomValue(0, (SCREEN_HEIGHT / SQUARE_SIZE) - 1) * SQUARE_SIZE };
+            }
+            framesCounter++;
+        }
+    }
+    else
+    {
+        if (IsKeyPressed(KEY_ENTER) || IsGestureDetected(GESTURE_TAP)) InitGameLogic();
+    }
+}
+
+void DrawGameLogic(void)
+{
+    BeginDrawing();
+    ClearBackground(RAYWHITE);
+
+    if (!gameOver)
+    {
+        for (int i = 0; i < snakeLength; i++) DrawRectangleV(snake[i].position, (Vector2){ (float)SQUARE_SIZE, (float)SQUARE_SIZE }, (i == 0) ? DARKBLUE : BLUE);
+        DrawRectangleV(fruit.position, (Vector2){ (float)SQUARE_SIZE, (float)SQUARE_SIZE }, RED);
+    }
+    else
+    {
+        DrawText("GAME OVER", SCREEN_WIDTH/2 - 100, SCREEN_HEIGHT/2 - 40, 40, RED);
+        DrawText("Tap/Enter to Restart", SCREEN_WIDTH/2 - 120, SCREEN_HEIGHT/2 + 20, 20, DARKGRAY);
+    }
+
+    EndDrawing();
+}
+
+// 供主循环调用的总函数
+void UpdateDrawFrame(void)
+{
+    UpdateGameLogic();
+    DrawGameLogic();
+}
+
+// ---------------------------------------------------------
+// 4. 主函数 (程序的入口)
+// ---------------------------------------------------------
 int main(void)
 {
-    // Initialization
-    //---------------------------------------------------------
-    InitWindow(screenWidth, screenHeight, "raylib game template");
+    InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "My Snake Game");
 
-    InitAudioDevice();      // Initialize audio device
-
-    // Load global data (assets that must be available in all screens, i.e. font)
-    font = LoadFont("resources/mecha.png");
-    //music = LoadMusicStream("resources/ambient.ogg"); // TODO: Load music
-    fxCoin = LoadSound("resources/coin.wav");
-
-    SetMusicVolume(music, 1.0f);
-    PlayMusicStream(music);
-
-    // Setup and init first screen
-    currentScreen = LOGO;
-    InitLogoScreen();
+    InitGameLogic();
 
 #if defined(PLATFORM_WEB)
     emscripten_set_main_loop(UpdateDrawFrame, 60, 1);
 #else
-    SetTargetFPS(60);       // Set our game to run at 60 frames-per-second
-    //--------------------------------------------------------------------------------------
-
-    // Main game loop
-    while (!WindowShouldClose())    // Detect window close button or ESC key
+    SetTargetFPS(60);
+    while (!WindowShouldClose())
     {
         UpdateDrawFrame();
     }
 #endif
 
-    // De-Initialization
-    //--------------------------------------------------------------------------------------
-    // Unload current screen data before closing
-    switch (currentScreen)
-    {
-        case LOGO: UnloadLogoScreen(); break;
-        case TITLE: UnloadTitleScreen(); break;
-        case OPTIONS: UnloadOptionsScreen(); break;
-        case GAMEPLAY: UnloadGameplayScreen(); break;
-        case ENDING: UnloadEndingScreen(); break;
-        default: break;
-    }
-
-    // Unload global data loaded
-    UnloadFont(font);
-    UnloadMusicStream(music);
-    UnloadSound(fxCoin);
-
-    CloseAudioDevice();     // Close audio context
-
-    CloseWindow();          // Close window and OpenGL context
-    //--------------------------------------------------------------------------------------
-
+    CloseWindow();
     return 0;
-}
-
-//----------------------------------------------------------------------------------
-// Module Functions Definition
-//----------------------------------------------------------------------------------
-// Change to next screen, no transition
-static void ChangeToScreen(int screen)
-{
-    // Unload current screen
-    switch (currentScreen)
-    {
-        case LOGO: UnloadLogoScreen(); break;
-        case TITLE: UnloadTitleScreen(); break;
-        case OPTIONS: UnloadOptionsScreen(); break;
-        case GAMEPLAY: UnloadGameplayScreen(); break;
-        case ENDING: UnloadEndingScreen(); break;
-        default: break;
-    }
-
-    // Init next screen
-    switch (screen)
-    {
-        case LOGO: InitLogoScreen(); break;
-        case TITLE: InitTitleScreen(); break;
-        case OPTIONS: InitOptionsScreen(); break;
-        case GAMEPLAY: InitGameplayScreen(); break;
-        case ENDING: InitEndingScreen(); break;
-        default: break;
-    }
-
-    currentScreen = screen;
-}
-
-// Request transition to next screen
-static void TransitionToScreen(int screen)
-{
-    onTransition = true;
-    transFadeOut = false;
-    transFromScreen = currentScreen;
-    transToScreen = screen;
-    transAlpha = 0.0f;
-}
-
-// Update transition effect (fade-in, fade-out)
-static void UpdateTransition(void)
-{
-    if (!transFadeOut)
-    {
-        transAlpha += 0.05f;
-
-        // NOTE: Due to float internal representation, condition jumps on 1.0f instead of 1.05f
-        // For that reason we compare against 1.01f, to avoid last frame loading stop
-        if (transAlpha > 1.01f)
-        {
-            transAlpha = 1.0f;
-
-            // Unload current screen
-            switch (transFromScreen)
-            {
-                case LOGO: UnloadLogoScreen(); break;
-                case TITLE: UnloadTitleScreen(); break;
-                case OPTIONS: UnloadOptionsScreen(); break;
-                case GAMEPLAY: UnloadGameplayScreen(); break;
-                case ENDING: UnloadEndingScreen(); break;
-                default: break;
-            }
-
-            // Load next screen
-            switch (transToScreen)
-            {
-                case LOGO: InitLogoScreen(); break;
-                case TITLE: InitTitleScreen(); break;
-                case OPTIONS: InitOptionsScreen(); break;
-                case GAMEPLAY: InitGameplayScreen(); break;
-                case ENDING: InitEndingScreen(); break;
-                default: break;
-            }
-
-            currentScreen = transToScreen;
-
-            // Activate fade out effect to next loaded screen
-            transFadeOut = true;
-        }
-    }
-    else  // Transition fade out logic
-    {
-        transAlpha -= 0.02f;
-
-        if (transAlpha < -0.01f)
-        {
-            transAlpha = 0.0f;
-            transFadeOut = false;
-            onTransition = false;
-            transFromScreen = -1;
-            transToScreen = UNKNOWN;
-        }
-    }
-}
-
-// Draw transition effect (full-screen rectangle)
-static void DrawTransition(void)
-{
-    DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(), Fade(BLACK, transAlpha));
-}
-
-// Update and draw game frame
-static void UpdateDrawFrame(void)
-{
-    // Update
-    //----------------------------------------------------------------------------------
-    //UpdateMusicStream(music);       // NOTE: Music keeps playing between screens
-
-    if (!onTransition)
-    {
-        switch(currentScreen)
-        {
-            case LOGO:
-            {
-                UpdateLogoScreen();
-
-                if (FinishLogoScreen()) TransitionToScreen(TITLE);
-
-            } break;
-            case TITLE:
-            {
-                UpdateTitleScreen();
-
-                if (FinishTitleScreen() == 1) TransitionToScreen(OPTIONS);
-                else if (FinishTitleScreen() == 2) TransitionToScreen(GAMEPLAY);
-
-            } break;
-            case OPTIONS:
-            {
-                UpdateOptionsScreen();
-
-                if (FinishOptionsScreen()) TransitionToScreen(TITLE);
-
-            } break;
-            case GAMEPLAY:
-            {
-                UpdateGameplayScreen();
-
-                if (FinishGameplayScreen() == 1) TransitionToScreen(ENDING);
-                //else if (FinishGameplayScreen() == 2) TransitionToScreen(TITLE);
-
-            } break;
-            case ENDING:
-            {
-                UpdateEndingScreen();
-
-                if (FinishEndingScreen() == 1) TransitionToScreen(TITLE);
-
-            } break;
-            default: break;
-        }
-    }
-    else UpdateTransition();    // Update transition (fade-in, fade-out)
-    //----------------------------------------------------------------------------------
-
-    // Draw
-    //----------------------------------------------------------------------------------
-    BeginDrawing();
-
-        ClearBackground(RAYWHITE);
-
-        switch(currentScreen)
-        {
-            case LOGO: DrawLogoScreen(); break;
-            case TITLE: DrawTitleScreen(); break;
-            case OPTIONS: DrawOptionsScreen(); break;
-            case GAMEPLAY: DrawGameplayScreen(); break;
-            case ENDING: DrawEndingScreen(); break;
-            default: break;
-        }
-
-        // Draw full screen rectangle in front of everything
-        if (onTransition) DrawTransition();
-
-        //DrawFPS(10, 10);
-
-    EndDrawing();
-    //----------------------------------------------------------------------------------
 }
