@@ -8,7 +8,7 @@
 // ---------------------------------------------------------
 // 1. 为了防止 GitHub 编译报错，必须保留的全局变量 (占位符)
 // ---------------------------------------------------------
-GameScreen currentScreen = 0;
+GameScreen currentScreen = 0; 
 Font font = { 0 };
 Music music = { 0 };
 Sound fxCoin = { 0 };
